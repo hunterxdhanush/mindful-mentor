@@ -43,22 +43,19 @@ export default function Journal() {
   useEffect(() => {
     const init = async () => {
       try {
-        let uid = localStorage.getItem("mm_user_id");
-        if (!uid) {
-          // create a demo user in backend
-          const res = await fetch('/api/users', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: `demo-${Date.now()}@local`,
-              display_name: 'Demo User',
-            }),
-          });
-          if (!res.ok) throw new Error(await res.text());
-          const data = await res.json();
-          uid = data.id;
-          localStorage.setItem("mm_user_id", uid);
-        }
+        // Always upsert a demo user to avoid stale localStorage IDs causing FK errors
+        const res = await fetch('/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: 'demo@local',
+            display_name: 'Demo User',
+          }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        const uid = data.id as string;
+        localStorage.setItem("mm_user_id", uid);
         setUserId(uid);
         setLoadingList(true);
         const listed = await listJournals(uid);
