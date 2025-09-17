@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import {
   Brain
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { createJournal, listJournals, type Journal as JournalModel } from "@/lib/api";
 
 const prompts = [
   "What am I grateful for today?",
@@ -34,6 +35,42 @@ export default function Journal() {
   const [entry, setEntry] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showInsight, setShowInsight] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [journals, setJournals] = useState<JournalModel[]>([]);
+  const [loadingList, setLoadingList] = useState(false);
+
+  // Ensure we have a demo user and load recent journals
+  useEffect(() => {
+    const init = async () => {
+      try {
+        let uid = localStorage.getItem("mm_user_id");
+        if (!uid) {
+          // create a demo user in backend
+          const res = await fetch('/api/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: `demo-${Date.now()}@local`,
+              display_name: 'Demo User',
+            }),
+          });
+          if (!res.ok) throw new Error(await res.text());
+          const data = await res.json();
+          uid = data.id;
+          localStorage.setItem("mm_user_id", uid);
+        }
+        setUserId(uid);
+        setLoadingList(true);
+        const listed = await listJournals(uid);
+        setJournals(listed.items);
+      } catch (e: any) {
+        toast({ title: 'Setup error', description: e.message || 'Failed to init user', variant: 'destructive' });
+      } finally {
+        setLoadingList(false);
+      }
+    };
+    init();
+  }, []);
 
   const handleSubmit = async () => {
     if (!entry.trim()) {
@@ -46,17 +83,23 @@ export default function Journal() {
     }
 
     setIsSubmitting(true);
-    
-    // Simulate AI processing
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    setIsSubmitting(false);
-    setShowInsight(true);
-    
-    toast({
-      title: "Entry saved",
-      description: "Your reflection has been recorded and analyzed.",
-    });
+    try {
+      if (!userId) throw new Error('User not ready');
+      const created = await createJournal({
+        userId,
+        title: new Date().toLocaleDateString(),
+        content: entry.trim(),
+      });
+      setEntry("");
+      setShowInsight(true);
+      // Prepend to list
+      setJournals((prev) => [created, ...prev].slice(0, 50));
+      toast({ title: 'Entry saved', description: 'Your reflection has been recorded.' });
+    } catch (e: any) {
+      toast({ title: 'Save failed', description: e.message || 'Please try again', variant: 'destructive' });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const randomPrompt = prompts[Math.floor(Math.random() * prompts.length)];
@@ -169,21 +212,23 @@ export default function Journal() {
             {/* Recent Stats */}
             <Card className="bg-card/80 backdrop-blur-sm shadow-card border-0">
               <CardHeader>
-                <CardTitle className="text-lg">Your Progress</CardTitle>
+                <CardTitle className="text-lg">Your Journals</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Entries this week</span>
-                  <Badge variant="secondary" className="bg-primary/10 text-primary">5</Badge>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Current streak</span>
-                  <Badge variant="secondary" className="bg-success/10 text-success">3 days</Badge>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Total entries</span>
-                  <Badge variant="secondary" className="bg-secondary/10 text-secondary">23</Badge>
-                </div>
+              <CardContent className="space-y-3">
+                {loadingList && <div className="text-sm text-muted-foreground">Loading...</div>}
+                {!loadingList && journals.length === 0 && (
+                  <div className="text-sm text-muted-foreground">No entries yet. Create your first reflection!</div>
+                )}
+                {!loadingList && journals.map(j => (
+                  <div key={j.id} className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground truncate max-w-[70%]" title={j.title ?? j.content}>
+                      {(j.title ?? j.content).slice(0, 40)}{(j.title ?? j.content).length > 40 ? '…' : ''}
+                    </span>
+                    <Badge variant="secondary" className="bg-primary/10 text-primary">
+                      {new Date(j.created_at).toLocaleDateString()}
+                    </Badge>
+                  </div>
+                ))}
               </CardContent>
             </Card>
           </div>
